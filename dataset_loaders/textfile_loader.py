@@ -13,6 +13,7 @@ class TextfileDataset(Dataset):
 
     def __init__(self, fpath, max_len=np.inf):
         self.data = pd.read_csv(fpath).iloc[:,0].tolist()
+        self.indices = list(range(len(self.data)))
         self.max_len = max_len
 
     def __len__(self):

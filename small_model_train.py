@@ -25,8 +25,10 @@ from sequence_models.metrics import MaskedAccuracy
 from sequence_models.utils import warmup 
 import sys
 
-from dataset_loaders.textfile_loader import TextfileDataset
+from lora_pytorch import LoRA
 
+from dataset_loaders.textfile_loader import TextfileDataset
+from evodiff.pretrained import OA_DM_38M, OA_DM_640M
 
 
 sys.setrecursionlimit(1000) # must be as large as diffusion timesteps for Q_bar calculation
@@ -38,11 +40,15 @@ home = str(pathlib.Path.home())
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('config_fpath')
-    parser.add_argument('out_fpath', type=str, nargs='?', default=os.getenv('PT_OUTPUT_DIR', '/tmp') + '/')
+    parser.add_argument('--config_fpath', type=str)
+    parser.add_argument('--out_fpath', type=str)
+    parser.add_argument('--train_fpath', type=str)
+    parser.add_argument('--valid_fpath', type=str)
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--weight_decay', type=float, default=0.0)
     parser.add_argument('--tie_weights', action='store_true')
+    parser.add_argument('--large_model', action='store_true')
+    parser.add_argument('--LoRA', action='store_true')
     parser.add_argument('--task', default=None)
     parser.add_argument('--dataset', default=None)
     parser.add_argument('--decay', action='store_true')
@@ -55,8 +61,9 @@ def main():
     parser.add_argument('--random_seed', type=int, default=0)  # lambda reweighting term from Austin D3PM
 
     args = parser.parse_args()
+    train_loop(args)
 
-def train(gpu, args):
+def train_loop(args):
     rs = torch.random.manual_seed(args.random_seed)
     rs = np.random.seed(int(args.random_seed))
     device = torch.device('cuda')
@@ -92,13 +99,9 @@ def train(gpu, args):
         config['dataset'] = args.dataset
     try:
         data_top_dir = os.getenv('PT_DATA_DIR') + '/'
-        ptjob = True
     except:
         data_top_dir = home + '/Desktop/DMs/data/'
-        ptjob = False
     data_dir = data_top_dir + config['dataset'] + '/'
-    if args.mini_run:
-        mini_size = 100 # For troubleshooting
     # ----------------------------------------------------------
     ### COLLATORS ###
     # ----------------------------------------------------------
@@ -111,88 +114,66 @@ def train(gpu, args):
     #     raise Exception("Autoreg in other script")
     #     collater = BertMaskCollater(tokenizer=tokenizer)
     #     diffusion_timesteps = None  # Not input to model
-    elif args.mask == 'blosum' or args.mask == 'random':
+    elif args.mask in ('random', 'blosum'):
         diffusion_timesteps = config['diffusion_timesteps']
         tokenizer = Tokenizer(path_to_blosum=data_top_dir+"blosum62-special-MSA.mat", sequences=True)
         if args.mask == 'random':
             Q_prod, Q_t = tokenizer.q_random_schedule(timesteps=diffusion_timesteps)
-        if args.mask == 'blosum':
+        else:
             Q_prod, Q_t = tokenizer.q_blosum_schedule(timesteps=diffusion_timesteps)
         collater = D3PMCollater(tokenizer=tokenizer, num_timesteps=diffusion_timesteps, Q=Q_t, Q_bar=Q_prod)
     else:
-        print("mask must be: 'oadm', 'blosum', or 'random'")
+        raise RuntimeError("mask must be: 'oadm', 'blosum', or 'random'")
     causal = False
     if args.mask == 'so':
         causal = True
     # ----------------------------------------------------------
     ### DATALOADER ###
     # ----------------------------------------------------------
-    metadata = np.load(data_dir + 'lengths_and_offsets.npz')
-    ds_train = UniRefDataset(data_dir, 'train', structure=False)
-    train_idx = ds_train.indices
-    len_train = metadata['ells'][train_idx]
-    train_sortish_sampler = SortishSampler(len_train, bucket_size, num_replicas=args.world_size, rank=0)
-    train_sampler = ApproxBatchSampler(train_sortish_sampler, max_tokens, max_batch_size, len_train)
+    if args.large_model:
+        init_model, collater, tokenizer, _ = OA_DM_640M()
+    else:
+        init_model, collater, tokenizer, _ = OA_DM_38M()
+    ds_train = TextfileDataset(args.train_fpath)
+    len_train = len(ds_train.data)
     dl_train = DataLoader(dataset=ds_train,
-                          batch_sampler=train_sampler,
-                          num_workers=16,
+                          batch_size=config["batch_size"],
+                          shuffle=True,
                           collate_fn=collater)
-    ds_valid = UniRefDataset(data_dir, 'valid', structure=False)
-    valid_idx = ds_valid.indices
-    len_valid = metadata['ells'][valid_idx]
-    valid_sortish_sampler = SortishSampler(len_valid, 1000, num_replicas=1, rank=0)
-    valid_sampler = ApproxBatchSampler(valid_sortish_sampler, max_tokens // 2, max_batch_size, len_valid)
+    ds_valid = TextfileDataset(args.valid_fpath)
+    len_valid = len(ds_valid.data)
     dl_valid = DataLoader(dataset=ds_valid,
-                              batch_sampler=valid_sampler,
-                              num_workers=8,
-                              collate_fn=collater)
+                          batch_size=config["batch_size"],
+                          shuffle=True,
+                          collate_fn=collater)
     # ----------------------------------------------------------
     # Initiate model
     # ----------------------------------------------------------
     padding_idx = tokenizer.pad_id  # PROTEIN_ALPHABET.index(PAD)
-    masking_idx = tokenizer.mask_id
-    print('Using {} as padding index'.format(padding_idx))
-    print('Using {} as masking index'.format(masking_idx))
-    #if args.model_type == 'ByteNet':
-    model = ByteNetLMTime(n_tokens, d_embed, d_model, n_layers, kernel_size, r,
-                      causal=causal, padding_idx=masking_idx, rank=weight_rank, dropout=args.dropout,
-                      tie_weights=args.tie_weights, final_ln=args.final_norm, slim=slim, activation=activation,
-                      timesteps=diffusion_timesteps)
-    optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
+    optimizer = Adam(init_model.parameters(), lr=lr, weight_decay=args.weight_decay)
     outputs = os.listdir(args.out_fpath)
     if len(outputs) > 0:
         last_epoch = 0
         for output in outputs:
             if 'checkpoint' in output:
-                epoch = int(output.split('checkpoint')[-1][:-4])
-                if epoch > last_epoch:
+                starting_epoch = int(output.split('checkpoint')[-1][:-4])
+                if starting_epoch > last_epoch:
                     args.state_dict = args.out_fpath + output
-                    last_epoch = epoch
-    model = model.to(device)
-    if args.pretrained: # testing something w/ pretraining
-        args.state_dict = 'data/pretrained/checkpoint538468.tar'
-    if args.state_dict is not None:
-        print('Loading weights from ' + args.state_dict + '...')
-        sd = torch.load(args.state_dict, map_location=torch.device('cpu'))
-        msd = sd['model_state_dict']
-        msd = {k.split('module.')[1]: v for k,v in msd.items()}
-        model.load_state_dict(msd)
-        optimizer.load_state_dict(sd['optimizer_state_dict'])
-        initial_epoch = sd['epoch'] + 1
-        total_steps = sd['step']
-        total_tokens = sd['tokens']
-    else:
-        initial_epoch = 0
-        total_steps = 0
-        total_tokens = 0
+                    last_epoch = starting_epoch
+    init_model = init_model.to(device)
     scaler = GradScaler()
+
+    # Add LoRA wrapper if LoRA was specified.
+    if args.LoRA:
+        model = LoRA.from_module(init_model, rank=16)
+    else:
+        model = init_model
+
     # ----------------------------------------------------------
     # Loss Function
     # ----------------------------------------------------------
-    if args.warmup:
-        scheduler = LambdaLR(optimizer, warmup(warmup_steps), verbose=False)
-    else:
-        raise Exception("add --warmup flag to runtime")
+    # Turn off scheduler for now since we are fine-tuning only.
+    #scheduler = LambdaLR(optimizer, warmup(warmup_steps), verbose=False)
     if args.mask == 'oadm' or args.mask == 'so':
         loss_func = OAMaskedCrossEntropyLoss(reweight=True)
     elif args.mask == 'blosum' or args.mask == 'random':
@@ -201,6 +182,11 @@ def train(gpu, args):
         loss_func2 = D3PMCELoss(tokenizer=tokenizer)
         _lambda = args.reweighting_term
     accu_func = MaskedAccuracy()
+    
+
+    initial_epoch = 0
+    total_steps = 0
+    total_tokens = 0
     # ----------------------------------------------------------
     # Run
     # ----------------------------------------------------------
@@ -223,28 +209,23 @@ def train(gpu, args):
         n_seen = 0
         tokens_trained = current_tokens
         if train:
-            if args.mini_run:
-                n_total = len(len_train)
-            else:
-                n_total = len(ds_train)
+            n_total = len(ds_train)
         else:
-            if args.mini_run:
-                n_total = len(len_valid)
-            else:
-                n_total = len(ds_valid)
+            n_total = len(ds_valid)
         for i, batch in enumerate(loader):
             # restarting from a checkpoint
-            if train and i == 1 and e == initial_epoch and args.state_dict is not None and not args.pretrained:
-                print("Restarting from checkpoint")
-                optimizer.load_state_dict(sd['optimizer_state_dict'])
-                scheduler.load_state_dict(sd['scheduler_state_dict'])
             new_loss, new_nll_loss, new_accu, new_n, new_seqs, new_processed = step(model, batch, train)
             if train:
-                dist.reduce(new_loss, 0, op=dist.ReduceOp.SUM)
-                dist.reduce(new_nll_loss, 0, op=dist.ReduceOp.SUM)
-                dist.reduce(new_accu, 0, op=dist.ReduceOp.SUM)
-                dist.reduce(new_n, 0, op=dist.ReduceOp.SUM)
-                dist.reduce(new_seqs, 0, op=dist.ReduceOp.SUM)
+                new_loss = new_loss.sum()
+                new_nll_loss = new_nll_loss.sum()
+                new_accu = new_accu.sum()
+                new_n = new_n.sum()
+                new_seqs = new_seqs.sum()
+                #dist.reduce(new_loss, 0, op=dist.ReduceOp.SUM)
+                #dist.reduce(new_nll_loss, 0, op=dist.ReduceOp.SUM)
+                #dist.reduce(new_accu, 0, op=dist.ReduceOp.SUM)
+                #dist.reduce(new_n, 0, op=dist.ReduceOp.SUM)
+                #dist.reduce(new_seqs, 0, op=dist.ReduceOp.SUM)
             losses.append(new_loss.item())
             nll_losses.append(new_nll_loss.item())
             accus.append(new_accu.item())
@@ -260,15 +241,9 @@ def train(gpu, args):
                 tokens_trained += new_processed.item()
             else:
                 nsteps = i
-            if ptjob:
-                end = '\n'
-                start = ''
-            else:
-                start = ''
-                end = '\n'
-            print(start + '%s Epoch %d of %d Step %d ntokens %d Example %d of %d loss = %.4f nll loss = %.4f accu = %.4f'
+            print('%s Epoch %d of %d Step %d ntokens %d Example %d of %d loss = %.4f nll loss = %.4f accu = %.4f\n'
                       % (t, e + 1, epochs, nsteps, tokens_trained, n_seen, n_total, r_loss, r_nll_loss, raccu),
-                      end=end)
+                  flush=True)
             if train:
                 losses = losses[-999:]
                 accus = accus[-999:]
@@ -280,7 +255,7 @@ def train(gpu, args):
                         f.write(','.join([str(r_loss), str(r_nll_loss), str(raccu), str(int(current_tokens)), str(nsteps), str(e)]))
                         f.write('\n')
                 if ((datetime.now() - chunk_time) > timedelta(minutes=args.checkpoint_freq)) or (n_seen == n_total):
-                    print('Writing to checkpoint at', chunk_time)
+                    print('Writing to checkpoint at', chunk_time, flush=True)
                     with torch.no_grad():
                         ckpt_fpath = args.out_fpath + 'checkpoint%d.tar' % nsteps
                         torch.save({
@@ -288,7 +263,6 @@ def train(gpu, args):
                                 'tokens': tokens_trained,
                                 'model_state_dict': model.state_dict(),
                                 'optimizer_state_dict': optimizer.state_dict(),
-                                'scheduler_state_dict': scheduler.state_dict(),
                                 'epoch': e
                                 }, ckpt_fpath)
                         _ = epoch(model, False, current_step=nsteps, current_tokens=tokens_trained)
@@ -297,9 +271,9 @@ def train(gpu, args):
             with open(args.out_fpath + 'valid-metrics.csv', 'a') as f:
                 f.write(','.join([str(r_loss), str(r_nll_loss), str(raccu), str(int(current_tokens)), str(current_step), str(e)]))
                 f.write('\n')
-            print('Validation complete in ' + str(datetime.now() - start_time))
+            print('Validation complete in ' + str(datetime.now() - start_time), flush=True)
         else:
-            print('Epoch complete in ' + str(datetime.now() - start_time))
+            print('Epoch complete in ' + str(datetime.now() - start_time), flush=True)
         return i, tokens_trained
 
     def step(model, batch, train):
@@ -332,6 +306,9 @@ def train(gpu, args):
         # Enables autocasting for the forward pass (model + loss)
         with torch.cuda.amp.autocast(dtype=torch.float32):
             outputs = model(src, timestep, input_mask=input_mask.unsqueeze(-1))
+            # The next few lines are bad syntax -- this is from the original file,
+            # I have not updated (jlp). However, since we are only using OADM for
+            # now, this is not currently an issue...
             if args.mask in ('random', 'blosum'):
                 lvb_loss = loss_func1(src_onehot, q, outputs, tgt, tgt_onehot, input_mask, timestep, Q, Q_bar)
                 ce_loss = loss_func2(outputs, tgt, input_mask)
@@ -344,15 +321,18 @@ def train(gpu, args):
                 ce_loss, nll_loss = loss_func(outputs, tgt, mask, timestep, input_mask)  # sum(loss per token)
                 loss = ce_loss
                 accu = accu_func(outputs, tgt, mask) * n_tokens
+            else:
+                raise RuntimeError("Unexpected mask.")
         if train:
             # Exit the context manager before backward()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scale = scaler.get_scale()
             scaler.update()
-            skip_scheduler = (scale > scaler.get_scale())
-            if not skip_scheduler:
-                scheduler.step()
+            # Skip scheduler for now...
+            #skip_scheduler = (scale > scaler.get_scale())
+            #if not skip_scheduler:
+            #    scheduler.step()
 
         if loss <= 0 or loss >= 1000000:
             print(loss, lvb_loss, ce_loss, nll_loss, n_tokens, _lambda)
@@ -362,15 +342,18 @@ def train(gpu, args):
         return loss, nll_loss, accu, n_tokens, n_seqs, n_processed
 
     n_parameters = sum(p.numel() for p in model.parameters())
-    print('%d model parameters' %n_parameters)
-    print('%d training sequences' %len(len_train))
-    print('%d validation sequences' %len(len_valid))
+    print('%d model parameters' %n_parameters, flush=True)
+    print('%d training sequences' %len_train, flush=True)
+    print('%d validation sequences' %len_valid, flush=True)
     for e in range(initial_epoch, epochs):
-        if not args.mini_run:
-            train_sortish_sampler.set_epoch(e + 1)
         s, t = epoch(model, True, current_step=total_steps, current_tokens=total_tokens)
         total_steps += s
         total_tokens += t
+
+    print("All done.", flush=True)
+    ckpt_fpath = os.path.join(args.out_fpath, 'FINAL_MODEL.pt')
+    torch.save(model.state_dict(), ckpt_fpath)
+
 
 if __name__ == '__main__':
     main()

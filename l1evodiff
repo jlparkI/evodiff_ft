@@ -1,0 +1,63 @@
+11511008 model parameters
+138376 training sequences
+34323 validation sequences
+/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/conv.py:306: UserWarning: Plan failed with a cudnnException: CUDNN_BACKEND_EXECUTION_PLAN_DESCRIPTOR: cudnnFinalize Descriptor Failed cudnn_status: CUDNN_STATUS_NOT_SUPPORTED (Triggered internally at ../aten/src/ATen/native/cudnn/Conv_v8.cpp:919.)
+  return F.conv1d(input, weight, bias, self.stride,
+/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/conv.py:306: UserWarning: Plan failed with an OutOfMemoryError: CUDA out of memory. Tried to allocate 346.00 MiB. GPU  (Triggered internally at ../aten/src/ATen/native/cudnn/Conv_v8.cpp:924.)
+  return F.conv1d(input, weight, bias, self.stride,
+/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/conv.py:306: UserWarning: Plan failed with an OutOfMemoryError: CUDA out of memory. Tried to allocate 358.00 MiB. GPU  (Triggered internally at ../aten/src/ATen/native/cudnn/Conv_v8.cpp:924.)
+  return F.conv1d(input, weight, bias, self.stride,
+/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/conv.py:306: UserWarning: Plan failed with an OutOfMemoryError: CUDA out of memory. Tried to allocate 350.00 MiB. GPU  (Triggered internally at ../aten/src/ATen/native/cudnn/Conv_v8.cpp:924.)
+  return F.conv1d(input, weight, bias, self.stride,
+/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/conv.py:306: UserWarning: Plan failed with an OutOfMemoryError: CUDA out of memory. Tried to allocate 348.00 MiB. GPU  (Triggered internally at ../aten/src/ATen/native/cudnn/Conv_v8.cpp:924.)
+  return F.conv1d(input, weight, bias, self.stride,
+Traceback (most recent call last):
+  File "small_model_train.py", line 356, in <module>
+    main()
+  File "small_model_train.py", line 63, in main
+    train_loop(args)
+  File "small_model_train.py", line 346, in train_loop
+    s, t = epoch(model, True, current_step=total_steps, current_tokens=total_tokens)
+  File "small_model_train.py", line 214, in epoch
+    new_loss, new_nll_loss, new_accu, new_n, new_seqs, new_processed = step(model, batch, train)
+  File "small_model_train.py", line 305, in step
+    outputs = model(src, timestep, input_mask=input_mask.unsqueeze(-1))
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1532, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1541, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/lora_pytorch/lora.py", line 59, in forward
+    y = self.module(x, *args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1532, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1541, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/new-stg/home/jonathan2/pdl1_evodiff_tuning/evodiff/evodiff/model.py", line 171, in forward
+    e = self.embedder(x, y, input_mask=input_mask)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1532, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1541, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/new-stg/home/jonathan2/pdl1_evodiff_tuning/evodiff/evodiff/model.py", line 129, in forward
+    return self._convolve(e, input_mask=input_mask)
+  File "/new-stg/home/jonathan2/pdl1_evodiff_tuning/evodiff/evodiff/model.py", line 144, in _convolve
+    e = layer(e, input_mask=input_mask)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1532, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1541, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/sequence_models/convolutional.py", line 249, in forward
+    self.conv(self.sequence1(x), input_mask=input_mask)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1532, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1541, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/lora_pytorch/lora.py", line 59, in forward
+    y = self.module(x, *args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1532, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1541, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/stg3/data3/Jonathan/miniconda/envs/evodiff/lib/python3.8/site-packages/sequence_models/convolutional.py", line 40, in forward
+    x = x * input_mask
+torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 174.00 MiB. GPU 
