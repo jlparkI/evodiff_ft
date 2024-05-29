@@ -48,7 +48,7 @@ def main():
     parser.add_argument('--weight_decay', type=float, default=0.0)
     parser.add_argument('--tie_weights', action='store_true')
     parser.add_argument('--large_model', action='store_true')
-    parser.add_argument('--LoRA', action='store_true')
+    parser.add_argument('--LoRA', type=int, default=0)
     parser.add_argument('--task', default=None)
     parser.add_argument('--dataset', default=None)
     parser.add_argument('--decay', action='store_true')
@@ -164,7 +164,7 @@ def train_loop(args):
     scaler = GradScaler()
 
     # Add LoRA wrapper if LoRA was specified.
-    if args.LoRA:
+    if args.LoRA > 0:
         model = LoRA.from_module(init_model, rank=16)
     else:
         model = init_model
@@ -352,7 +352,11 @@ def train_loop(args):
 
     print("All done.", flush=True)
     ckpt_fpath = os.path.join(args.out_fpath, 'FINAL_MODEL.pt')
-    torch.save(model.state_dict(), ckpt_fpath)
+    if args.LoRA > 0:
+        new_model = model.merge_lora(inplace=True)
+        torch.save(new_model.state_dict(), ckpt_fpath)
+    else:
+        torch.save(model.state_dict(), ckpt_fpath)
 
 
 if __name__ == '__main__':

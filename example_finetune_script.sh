@@ -15,9 +15,13 @@ source /stg3/data3/Jonathan/.bash_profile
 conda activate evodiff
 
 
-python small_model_train.py --config_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/evodiff/config/config640M.json \
+# Remember to remove the --LoRA and --large_model lines if you don't want to use LoRA and/or the large model,
+# and to update the other lines as appropriate.
+
+python fine_tune.py --config_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/evodiff/config/config38M.json \
 	--out_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/evodiff_results/ \
 	--train_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/train_pdl1.txt \
 	--valid_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/test_pdl1.txt \
         --checkpoint_freq 60 \
-	--large_model
+        --LoRA 16
+#	--large_model
