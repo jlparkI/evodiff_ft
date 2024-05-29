@@ -56,8 +56,8 @@ and call it. Run this on GPU (on GPU-3 preferably). These arguments are:
     will not be used and the full model will be fine-tuned.
 ```
 
-After fine-tuning, the updated model will be saved to your output path, where you can load
-it for further use.
+After fine-tuning, the state dict for the updated model will be saved to your output path, where you can load
+it for further use, under the name ``"FINAL_MODEL.pt"``.
 
 If you want to change the learning rate, number of epochs etc that will be used during fine-
 tuning, change the appropriate config file under config. Note that batch size is fairly
