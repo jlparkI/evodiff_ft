@@ -19,9 +19,9 @@ conda activate evodiff
 # and to update the other lines as appropriate.
 
 python fine_tune.py --config_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/evodiff/config/config38M.json \
-	--out_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/evodiff_results/ \
-	--train_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/train_pdl1.txt \
-	--valid_fpath /stg3/data3/Jonathan/jonathan2/pdl1_evodiff_tuning/test_pdl1.txt \
+	--out_fpath /stg3/data3/Jonathan/jonathan2/resp2_absolut/fine_tuning/ \
+	--train_fpath /stg3/data3/Jonathan/jonathan2/resp2_absolut/fine_tuning/il2_80_genAI_seqs.txt \
+	--valid_fpath /stg3/data3/Jonathan/jonathan2/resp2_absolut/fine_tuning/ \
         --checkpoint_freq 60 \
         --LoRA 16
 #	--large_model
